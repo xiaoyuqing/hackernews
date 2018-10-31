@@ -1,10 +1,17 @@
 import React, { Component } from 'react';
 import axios from 'axios';
+import PropTypes from 'prop-types';
 import './App.css';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import { faCoffee } from '@fortawesome/free-solid-svg-icons'
+import classNames from 'classnames';
+import Table from './components/Table';
+import Search from './components/Search';
+import Button from './components/Button';
 
 const DEFAULT_QUERY = 'Redux';
 const DEFAULT_HPP = '100';
-const PATH_BASE = 'https://hn.foo.bar.com/api/v1';
+const PATH_BASE = 'https://hn.algolia.com/api/v1';;
 const PATH_SEARCH = '/search';
 const PARAM_SEARCH = 'query=';
 const PARAM_PAGE = 'page=';
@@ -29,9 +36,9 @@ const list = [
   },
 ];
 
-const isSearched = searchTerm => item => item.title.toLowerCase().includes(searchTerm.toLowerCase());
 
 class App extends Component {
+  _isMounted = false;
   constructor(props) {
     super(props);
     this.state = {
@@ -39,6 +46,9 @@ class App extends Component {
       searchKey: '',
       searchTerm: DEFAULT_QUERY,
       error: null,
+      isLoading: false,
+      sortKey: 'NONE',
+      isSortReverse: false,
     };
     this.needsToSearchTopStories = this.needsToSearchTopStories.bind(this);
     this.setSearchTopStories = this.setSearchTopStories.bind(this);
@@ -49,9 +59,14 @@ class App extends Component {
   }
 
   componentDidMount() {
+    this._isMounted = true;
     const { searchTerm } = this.state;
     this.setState({ searchKey: searchTerm });
     this.fetchSearchTopStories(searchTerm);
+  }
+
+  componentWillUnmount() {
+    this._isMounted = false;
   }
 
   needsToSearchTopStories(searchTerm) {
@@ -59,26 +74,38 @@ class App extends Component {
   }
 
   fetchSearchTopStories(searchTerm, page = 0) {
+    this.setState({ isLoading: true });
     axios(`${PATH_BASE}${PATH_SEARCH}?${PARAM_SEARCH}${searchTerm}&${PARAM_PAGE}${page}&${PARAM_HPP}${DEFAULT_HPP}`)
-      .then(response => response.json())
-      .then(result => this.setSearchTopStories(result.data))
-      .catch(error => this.setState({ error }));
+      .then(result => {
+        this._isMounted && this.setSearchTopStories(result.data);
+        this.setState({
+          isLoading: false,
+        })
+      })
+      .catch(error => this._isMounted && this.setState({ error }));
   }
 
   setSearchTopStories(result) {
     const { hits, page } = result;
-    const { searchKey, results } = this.state;
-    const oldHits = results && results[searchKey]
-      ? results[searchKey].hits
-      : [];
-    const updatedHits = [
-      ...oldHits,
-      ...hits
-    ];
-    this.setState({
-      results: { ...results, [searchKey]: {hits: updatedHits, page }}
-    });
+    this.setState(prevState => {
+      const { searchKey, results } = prevState;
+      const oldHits = results && results[searchKey]
+        ? results[searchKey].hits : [];
+      const updatedHits = [
+        ...oldHits,
+        ...hits
+      ];
+
+      return {
+        results: {
+          ...results,
+          [searchKey]: { hits: updatedHits, page }
+        },
+        isLoading: false
+      }
+    })
   }
+  
 
   onSearchChange(event) {
     this.setState({ searchTerm: event.target.value });
@@ -109,7 +136,10 @@ class App extends Component {
       searchTerm,
       results, 
       searchKey, 
-      error 
+      error,
+      isLoading,
+      sortKey,
+      isSortReverse
     } = this.state;
 
     const page = (
@@ -138,68 +168,32 @@ class App extends Component {
           </div>
           : <Table
             list={list}
+            sortKey={sortKey}
+            isSortReverse={isSortReverse}
+            onSort={this.onSort}
             onDismiss={this.onDismiss}
           />
         }
         <div className="interactions">
-          <Button onClick={() => this.fetchSearchTopStories(searchKey, page + 1)}>
-            More
-          </Button>
+        <ButtonWithLoading isLoading={isLoading} onClick={() => this.fetchSearchTopStories(searchKey, page + 1)}>
+          More
+        </ButtonWithLoading>
         </div>
       </div>
     );
   }
+
 }
 
-const Search = ({ value, onChange, onSubmit, children }) =>
-  <form onSubmit={onSubmit}>
-    <input
-      type="text"
-      value={value}
-      onChange={onChange}
-    />
-    <button type="submit">
-      {children}
-    </button>
-  </form>;
+
+const Loading = () => 
+  <div><FontAwesomeIcon icon={faCoffee} /></div>
 
 
-const Table = ({ list, onDismiss }) => 
-  <div className="table">
-    {list.map(item =>
-      <div key={item.objectID} className="table-row">
-        <span>
-          <a href={item.url}>{item.title}</a>
-        </span>
-        <span>{item.author}</span>
-        <span>{item.num_comments}</span>
-        <span>{item.points}</span>
-        <span>
-          <Button onClick={() => onDismiss(item.objectID)} className="button-inline">
-            Dismiss
-          </Button>
-        </span>
-      </div>
-    )}
-  </div>;
-
-class Button extends Component {
-  render() {
-    const {
-      onClick,
-      className = '',
-      children,
-    } = this.props;
-    return (
-      <button
-        onClick={onClick}
-        className={className}
-        type="button"
-      >
-        {children}
-      </button>
-    );
-  }
-}
+const withLoading = (Component) => ({ isLoading, ...rest}) =>
+  isLoading
+    ? <Loading />
+    : <Component {...rest} />
+const ButtonWithLoading = withLoading(Button);
 
 export default App;
